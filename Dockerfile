@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     texlive-bibtex-extra \
     biber \
     lmodern \
+    fonts-texgyre \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Inter font (required by pdf-template.tex)
