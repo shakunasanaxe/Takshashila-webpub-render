@@ -2,13 +2,15 @@ FROM python:3.11-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies + TeX Live (more reliable than TinyTeX in Docker)
+# Install system dependencies + TeX Live
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
+    unzip \
     gdebi-core \
     perl \
     ca-certificates \
+    fontconfig \
     libglib2.0-0 \
     libfontconfig1 \
     libfreetype6 \
@@ -16,10 +18,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     texlive-xetex \
     texlive-fonts-recommended \
+    texlive-fonts-extra \
     texlive-plain-generic \
     texlive-latex-extra \
+    texlive-bibtex-extra \
+    biber \
     lmodern \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Inter font (required by pdf-template.tex)
+RUN wget -q "https://github.com/rsms/inter/releases/download/v4.0/Inter-4.0.zip" \
+    && unzip -q Inter-4.0.zip -d /tmp/inter \
+    && find /tmp/inter -name "*.ttf" -exec cp {} /usr/local/share/fonts/ \; \
+    && fc-cache -f \
+    && rm -rf Inter-4.0.zip /tmp/inter
 
 # Install Quarto CLI
 ARG QUARTO_VERSION=1.5.57

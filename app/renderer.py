@@ -68,22 +68,27 @@ def render_and_zip(
         qmd_path = work / f"{pdf_filename}.qmd"
         qmd_path.write_text(qmd_content, encoding="utf-8")
 
-        # Copy Takshashila template YMLs
-        for yml in ("_metadata.yml", "_variables.yml"):
-            src = TEMPLATE_DIR / yml
-            if src.exists():
-                shutil.copy(src, work / yml)
+        # Copy entire Takshashila template tree recursively into work dir.
+        # This includes: _metadata.yml, _variables.yml, _quarto.yml,
+        # pdf-template.tex, includes/*.lua, assets/main-logo-dark.png
+        if TEMPLATE_DIR.exists():
+            for src in TEMPLATE_DIR.rglob("*"):
+                if src.is_file():
+                    rel = src.relative_to(TEMPLATE_DIR)
+                    dest = work / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(src, dest)
 
         # Copy images
         out_images = work / "images"
-        out_images.mkdir()
+        out_images.mkdir(exist_ok=True)
         if images_dir.exists():
             for img in images_dir.iterdir():
                 shutil.copy(img, out_images / img.name)
 
-        # Create assets/ dir for the PDF
+        # Create assets/ dir for the PDF (may already exist from template copy)
         assets = work / "assets"
-        assets.mkdir()
+        assets.mkdir(exist_ok=True)
 
         pdf_path: Path | None = None
 
@@ -116,11 +121,26 @@ def render_and_zip(
         # Build ZIP in memory
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            # QMD
             zf.write(qmd_path, arcname=f"{pdf_filename}.qmd")
 
-            if pdf_path and pdf_path.exists():
-                zf.write(pdf_path, arcname=f"assets/{pdf_filename}.pdf")
+            # Standard project files needed for local RStudio render
+            for fname in ("_metadata.yml", "_variables.yml", "_quarto.yml", "pdf-template.tex"):
+                p = work / fname
+                if p.exists():
+                    zf.write(p, arcname=fname)
 
+            # Lua filters (includes/)
+            includes_dir = work / "includes"
+            if includes_dir.exists():
+                for f in includes_dir.iterdir():
+                    zf.write(f, arcname=f"includes/{f.name}")
+
+            # Assets: logo + rendered PDF
+            for f in assets.iterdir():
+                zf.write(f, arcname=f"assets/{f.name}")
+
+            # Images
             for img in out_images.iterdir():
                 zf.write(img, arcname=f"images/{img.name}")
 
