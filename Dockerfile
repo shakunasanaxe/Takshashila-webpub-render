@@ -1,7 +1,8 @@
-# ── Stage 1: Build image with Quarto + TinyTeX ────────────────────────────────
 FROM python:3.11-slim
 
-# Install system dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies + TeX Live (more reliable than TinyTeX in Docker)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
@@ -13,6 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfreetype6 \
     libpng-dev \
     libjpeg-dev \
+    texlive-xetex \
+    texlive-fonts-recommended \
+    texlive-plain-generic \
+    texlive-latex-extra \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Quarto CLI
@@ -21,27 +26,7 @@ RUN wget -q "https://github.com/quarto-dev/quarto-cli/releases/download/v${QUART
     && gdebi --non-interactive "quarto-${QUARTO_VERSION}-linux-amd64.deb" \
     && rm "quarto-${QUARTO_VERSION}-linux-amd64.deb"
 
-# Install TinyTeX (via Quarto)
-RUN quarto install tinytex --no-prompt
-
-# Add TinyTeX to PATH
-ENV PATH="/root/.TinyTeX/bin/x86_64-linux:${PATH}"
-
-# Install extra LaTeX packages needed for Quarto's default PDF template
-RUN tlmgr install \
-    framed \
-    tcolorbox \
-    environ \
-    trimspaces \
-    amsmath \
-    etoolbox \
-    pgf \
-    xcolor \
-    fontawesome5 \
-    selnolig \
-    || true
-
-# ── Python app ─────────────────────────────────────────────────────────────────
+# Python app
 WORKDIR /app
 
 COPY requirements.txt .
