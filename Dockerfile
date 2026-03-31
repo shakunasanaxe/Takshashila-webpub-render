@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     texlive-fonts-recommended \
     texlive-plain-generic \
     texlive-latex-extra \
+    lmodern \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Quarto CLI
