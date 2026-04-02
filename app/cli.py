@@ -10,7 +10,6 @@ Usage:
 """
 
 import argparse
-import io
 import sys
 import tempfile
 from pathlib import Path
@@ -59,8 +58,8 @@ def main() -> None:
 
     # ── Fetch DOCX ────────────────────────────────────────────────────────────
     print(f"[1/3] Fetching Google Doc: {args.url}")
-    docx_bytes = fetch_docx(args.url)
-    doc = Document(io.BytesIO(docx_bytes))
+    docx_path = fetch_docx(args.url)   # returns a Path
+    doc = Document(docx_path)
 
     # ── Convert ───────────────────────────────────────────────────────────────
     meta = {
