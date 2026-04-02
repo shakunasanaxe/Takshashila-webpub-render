@@ -1,0 +1,55 @@
+name: Deploy Frontend
+
+# Pushes docs/ to the root of the gh-pages branch whenever
+# the frontend files change on main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+  workflow_dispatch:   # allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Deploy docs/ to gh-pages
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git worktree add /tmp/ghpages origin/gh-pages
+          else
+            git worktree add --orphan -b gh-pages /tmp/ghpages
+            touch /tmp/ghpages/.nojekyll
+            cd /tmp/ghpages
+            git add .nojekyll
+            git commit -m "chore: initialize gh-pages"
+            git push origin gh-pages
+            cd -
+          fi
+
+          # Copy frontend files to gh-pages root (outputs/ is untouched)
+          cp docs/index.html /tmp/ghpages/index.html
+          cp docs/style.css  /tmp/ghpages/style.css
+          cp docs/app.js     /tmp/ghpages/app.js
+          touch /tmp/ghpages/.nojekyll
+
+          cd /tmp/ghpages
+          git add index.html style.css app.js .nojekyll
+          if git diff --cached --quiet; then
+            echo "No frontend changes to deploy."
+          else
+            git commit -m "deploy: update frontend from main"
+            git push origin HEAD:gh-pages
+          fi
