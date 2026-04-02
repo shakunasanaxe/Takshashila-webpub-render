@@ -63,17 +63,13 @@ jobs:
           fetch-depth: 0   # full history so we can work with gh-pages branch
 
       # ── System dependencies (LaTeX, fonts) ─────────────────────────────────
-      - name: Cache apt packages
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: >-
-            texlive-xetex texlive-fonts-recommended texlive-fonts-extra
-            texlive-plain-generic texlive-latex-extra texlive-bibtex-extra
+      - name: Install LaTeX and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-xetex texlive-fonts-recommended texlive-fonts-extra \
+            texlive-plain-generic texlive-latex-extra texlive-bibtex-extra \
             biber lmodern fonts-texgyre fontconfig
-          version: 1.0
-
-      - name: Generate XeLaTeX format file
-        run: sudo fmtutil-sys --byfmt xelatex
 
       - name: Install Inter font
         run: |
