@@ -63,10 +63,11 @@ jobs:
           fetch-depth: 0   # full history so we can work with gh-pages branch
 
       # ── System tools (font infrastructure only — LaTeX via TinyTeX below) ──
-      - name: Install font tools
+      - name: Install font tools and system fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fontconfig wget unzip
+          sudo apt-get install -y --no-install-recommends \
+            fontconfig wget unzip fonts-texgyre
 
       # ── Quarto + TinyTeX ────────────────────────────────────────────────────
       - name: Set up Quarto with TinyTeX
@@ -84,7 +85,7 @@ jobs:
       # (the format itself) and the fonts must be present upfront.
       - name: Install xelatex and core LaTeX packages
         run: |
-          tlmgr install xetex tex-gyre collection-fontsrecommended \
+          tlmgr install xetex collection-fontsrecommended \
             biber biblatex sidenotes marginnote tcolorbox enotez lm
 
       - name: Install Inter font
