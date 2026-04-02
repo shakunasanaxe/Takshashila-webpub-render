@@ -62,14 +62,27 @@ jobs:
         with:
           fetch-depth: 0   # full history so we can work with gh-pages branch
 
-      # ── System dependencies (LaTeX, fonts) ─────────────────────────────────
-      - name: Install LaTeX and fonts
+      # ── System tools (font infrastructure only — LaTeX via TinyTeX below) ──
+      - name: Install font tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            texlive-xetex texlive-fonts-recommended texlive-fonts-extra \
-            texlive-plain-generic texlive-latex-extra texlive-bibtex-extra \
-            biber lmodern fonts-texgyre fontconfig
+          sudo apt-get install -y --no-install-recommends fontconfig wget unzip
+
+      # ── Quarto + TinyTeX ────────────────────────────────────────────────────
+      - name: Set up Quarto with TinyTeX
+        uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: "1.5.57"
+          tinytex: true   # installs TinyTeX into ~/.TinyTeX
+
+      # Install xelatex + essential packages into TinyTeX.
+      # TinyTeX auto-installs missing packages at render time, but xetex
+      # (the format itself) and the fonts must be present upfront.
+      - name: Install xelatex and core LaTeX packages
+        run: |
+          tlmgr install xetex tex-gyre collection-fontsrecommended \
+            biber biblatex sidenotes marginnote tcolorbox enotez lm
+          fmtutil-user --byfmt xelatex
 
       - name: Install Inter font
         run: |
@@ -78,12 +91,6 @@ jobs:
           find /tmp/inter -name "*.ttf" -exec sudo cp {} /usr/local/share/fonts/ \;
           fc-cache -f
           rm -rf Inter-4.0.zip /tmp/inter
-
-      # ── Quarto ──────────────────────────────────────────────────────────────
-      - name: Set up Quarto
-        uses: quarto-dev/quarto-actions/setup@v2
-        with:
-          version: "1.5.57"
 
       # ── Python ──────────────────────────────────────────────────────────────
       - name: Set up Python
