@@ -39,11 +39,14 @@ jobs:
             cd -
           fi
 
+          # Inject the shared token (stored as a repo secret, never in git)
+          sed "s/PASTE_YOUR_TOKEN_HERE/${{ secrets.SHARED_TOKEN }}/" docs/app.js > /tmp/app_injected.js
+
           # Copy frontend files to gh-pages root (outputs/ is untouched)
-          cp docs/index.html /tmp/ghpages/index.html
-          cp docs/style.css  /tmp/ghpages/style.css
-          cp docs/app.js     /tmp/ghpages/app.js
-          cp docs/logo.png   /tmp/ghpages/logo.png
+          cp docs/index.html       /tmp/ghpages/index.html
+          cp docs/style.css        /tmp/ghpages/style.css
+          cp /tmp/app_injected.js  /tmp/ghpages/app.js
+          cp docs/logo.png         /tmp/ghpages/logo.png
           touch /tmp/ghpages/.nojekyll
 
           cd /tmp/ghpages
