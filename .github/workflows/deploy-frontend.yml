@@ -32,13 +32,13 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v4
 
-      - name: Build site with injected token
+      - name: Build site
         run: |
           mkdir _site
           cp docs/index.html _site/index.html
           cp docs/style.css  _site/style.css
           cp docs/logo.png   _site/logo.png
-          sed "s/PASTE_YOUR_TOKEN_HERE/${{ secrets.SHARED_TOKEN }}/" docs/app.js > _site/app.js
+          cp docs/app.js     _site/app.js
           touch _site/.nojekyll
 
       - name: Upload Pages artifact
