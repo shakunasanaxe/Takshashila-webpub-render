@@ -3,12 +3,12 @@ Convert a DOCX (fetched from Google Docs) to Quarto Markdown (.qmd).
 
 Handles:
 - YAML frontmatter from metadata form fields
-- Heading styles (Heading 1–4)
+- Heading styles (Heading 1–4) + heuristic detection of bold short paragraphs
 - Bold, italic, bold+italic inline formatting
 - Hyperlinks
 - Bullet and numbered lists
-- Embedded images → images/img_N.png with captions
-- Word footnotes → [^N] format
+- Embedded images → images/img_N.png at {width=100%}
+- Word footnotes → [^N] placed inline at the exact reference position
 - [^N] pass-through (already in QMD format)
 - [aside] / [/aside] plain-text tags → :::{.aside} blocks
 - Pass-through of existing Quarto syntax (:::, ![, etc.)
@@ -16,16 +16,15 @@ Handles:
 
 import io
 import re
-import shutil
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 from lxml import etree
 
 from docx import Document
 from docx.oxml.ns import qn
-from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.text.run import Run as DocxRun
 
 
 # ── YAML frontmatter ──────────────────────────────────────────────────────────
@@ -112,10 +111,63 @@ def _format_run(run, para) -> str:
 
 
 def _para_to_inline_text(para) -> str:
-    """Convert all runs in a paragraph to inline markdown."""
+    """Convert all runs in a paragraph to inline markdown (no footnotes)."""
     parts = []
     for run in para.runs:
         parts.append(_format_run(run, para))
+    return "".join(parts)
+
+
+def _para_to_inline_with_fn(para, get_fn_num) -> str:
+    """
+    Build inline markdown for a paragraph, placing [^N] footnote markers
+    at the EXACT position where they appear in the XML (not appended at end).
+    Walks the paragraph XML directly to interleave runs and footnote refs.
+    """
+    parts = []
+
+    def _handle_run_elem(r_elem):
+        # Footnote reference run — no visible text, just a marker
+        fn_ref = r_elem.find(qn("w:footnoteReference"))
+        if fn_ref is not None:
+            wid_str = fn_ref.get(qn("w:id"))
+            if wid_str:
+                try:
+                    wid = int(wid_str)
+                    if wid >= 1:
+                        parts.append(f"[^{get_fn_num(wid)}]")
+                except ValueError:
+                    pass
+            return
+        # Regular run — wrap in a python-docx Run object to reuse _format_run
+        run = DocxRun(r_elem, para)
+        parts.append(_format_run(run, para))
+
+    for child in para._p:
+        tag = child.tag
+        if tag == qn("w:r"):
+            _handle_run_elem(child)
+        elif tag == qn("w:hyperlink"):
+            r_id = child.get(qn("r:id"))
+            url = None
+            if r_id:
+                try:
+                    url = para.part.rels[r_id].target_ref
+                except (KeyError, AttributeError):
+                    pass
+            # Collect text from all runs inside the hyperlink
+            link_text = ""
+            for r_elem in child.findall(qn("w:r")):
+                for t in r_elem.findall(qn("w:t")):
+                    if t.text:
+                        link_text += t.text
+            if link_text:
+                parts.append(f"[{link_text}]({url})" if url else link_text)
+        elif tag == qn("w:ins"):
+            # Tracked-change insertions — include their runs
+            for r_elem in child.findall(qn("w:r")):
+                _handle_run_elem(r_elem)
+
     return "".join(parts)
 
 
@@ -211,7 +263,7 @@ def _image_prefix(pdf_filename: str) -> str:
     """
     Derive a short image prefix from the pdf_filename.
     Strips a trailing date pattern and lowercases the result.
-      'GAGEChina-30032026'    → 'gagechina'
+      'GAGEChina-30032026'      → 'gagechina'
       'EU-Rearm-India-09032026' → 'eu_rearm_india'
     """
     stem = re.sub(r"[-_]\d{6,8}$", "", pdf_filename)
@@ -221,9 +273,9 @@ def _image_prefix(pdf_filename: str) -> str:
 @dataclass
 class ImageRef:
     index: int
-    filename: str  # e.g. "gagechina_1.png"
+    filename: str       # e.g. "gagechina_1.png"
     blob: bytes
-    para_index: int  # paragraph index where the image appears
+    para_index: int     # paragraph index where the image appears
 
 
 def _extract_images(doc: Document, img_prefix: str = "img") -> list[ImageRef]:
@@ -233,13 +285,10 @@ def _extract_images(doc: Document, img_prefix: str = "img") -> list[ImageRef]:
     """
     images: list[ImageRef] = []
     img_counter = 0
-    body = doc.element.body
 
     for para_idx, para in enumerate(doc.paragraphs):
-        # Look for <w:drawing> elements in this paragraph's XML
         drawings = para._p.findall(".//" + qn("w:drawing"))
         for drawing in drawings:
-            # Find the blipFill relationship id
             blip = drawing.find(".//" + qn("a:blip"))
             if blip is None:
                 continue
@@ -284,7 +333,7 @@ HEADING_MAP = {
 SKIP_STYLES = {"Title", "Subtitle", "Author", "title", "subtitle", "author"}
 
 # Quarto/Markdown syntax that should be passed through verbatim
-PASSTHROUGH_PREFIXES = (":::", "[^", "![", "---", "<!-- ")
+PASSTHROUGH_PREFIXES = (":::", "[^", "---", "<!-- ")
 
 
 def _strip_emphasis(text: str) -> str:
@@ -296,15 +345,11 @@ def _extract_literal_heading(text: str) -> Optional[tuple[str, str]]:
     """
     If text is a literal markdown heading like '# Foo' or '## Bar',
     return (prefix, clean_heading_text). Otherwise None.
-    Strips bold/italic markers from the heading text since headings have
-    their own styling and **...** inside headings renders as literal asterisks
-    in LaTeX/PDF output.
+    Strips bold/italic markers from the heading text.
     """
-    # Strip leading/trailing bold markers that may wrap the whole heading
     stripped = text.strip().lstrip("*").rstrip("*").strip()
     m = re.match(r"^(#{1,4})\s+(.+)$", stripped)
     if m:
-        # Strip any remaining ** or * markers (e.g. "## **3****.2** Section")
         heading_text = _strip_emphasis(m.group(2))
         return m.group(1), heading_text
     return None
@@ -321,28 +366,51 @@ def _get_list_marker(para) -> Optional[str]:
         return "- "
     if "List Number" in style_name:
         return "1. "
-    # Check numPr for outline-level lists
     pPr = para._p.find(qn("w:pPr"))
     if pPr is not None:
         numPr = pPr.find(qn("w:numPr"))
         if numPr is not None:
             numId = numPr.find(qn("w:numId"))
-            ilvl = numPr.find(qn("w:ilvl"))
             if numId is not None and numId.get(qn("w:val")) not in ("0", None):
-                # Try to determine bullet vs numbered from the numbering definition
-                # Default to bullet if we can't tell
                 return "- "
     return None
 
 
-def _footnote_ref_ids_in_para(para) -> list[int]:
-    """Return the Word footnote IDs referenced in this paragraph (in order)."""
-    ids = []
-    for fn_ref in para._p.findall(".//" + qn("w:footnoteReference")):
-        val = fn_ref.get(qn("w:id"))
-        if val is not None:
-            ids.append(int(val))
-    return ids
+def _is_implicit_heading(para) -> bool:
+    """
+    Heuristically detect paragraphs that look like headings but use 'Normal'
+    style in Google Docs (e.g. short bold lines used as section titles).
+
+    Criteria:
+    - Not already a recognised heading or skip style
+    - Short text (≤ 10 words)
+    - Every run that contains text is bold
+    - Not a list item
+    """
+    style_name = para.style.name if para.style else "Normal"
+    if style_name in HEADING_MAP or style_name in SKIP_STYLES:
+        return False
+
+    text = para.text.strip()
+    if not text:
+        return False
+
+    # Must be short
+    if len(text.split()) > 10:
+        return False
+
+    # Every non-empty run must be bold
+    runs_with_text = [r for r in para.runs if r.text.strip()]
+    if not runs_with_text:
+        return False
+    if not all(r.bold for r in runs_with_text):
+        return False
+
+    # Must not be a list item
+    if _get_list_marker(para):
+        return False
+
+    return True
 
 
 # ── Main conversion ───────────────────────────────────────────────────────────
@@ -379,9 +447,8 @@ def convert(
     for img in image_refs:
         para_to_images.setdefault(img.para_index, []).append(img)
 
-    # 2. Build a running footnote counter for Word-style footnotes
-    #    (pass-through [^N] in text already carries its own numbering)
-    fn_map: dict[int, int] = {}  # word_fn_id → sequential [^N] number
+    # 2. Footnote counter — shared state accessed via closure
+    fn_map: dict[int, int] = {}   # word_fn_id → sequential [^N] number
     fn_counter = [0]
 
     def get_fn_num(word_id: int) -> int:
@@ -391,71 +458,62 @@ def convert(
         return fn_map[word_id]
 
     # 3. Build a set of metadata strings to skip at the top of the document
-    #    (Google Docs exports title/subtitle/author as plain "normal" paragraphs)
     authors_list = [a.strip() for a in meta.get("authors", "").split(",") if a.strip()]
     skip_exact = {meta.get("title", "").strip(), meta.get("subtitle", "").strip()}
     skip_exact.update(authors_list)
     skip_exact.discard("")
 
-    # 3. Convert paragraphs to raw markdown lines (before aside processing)
+    # 4. Convert paragraphs
     raw_lines: list[str] = []
-    # Track whether we've passed the first heading (after which we stop skipping metadata)
     seen_heading = False
 
     for para_idx, para in enumerate(doc.paragraphs):
-        # Emit any images that appear in this paragraph.
-        # PDF: raw LaTeX spanning full text+margin width (avoids narrow sidenote column).
-        # HTML: regular markdown image at 100% width.
-        _FW = r"\dimexpr\textwidth+\marginparsep+\marginparwidth\relax"
+
+        # ── Emit images attached to this paragraph ──────────────────────────
         for img in para_to_images.get(para_idx, []):
-            p = f"images/{img.filename}"
-            raw_lines.append("")   # blank line required before a Quarto div fence
-            raw_lines.append('::: {.content-visible unless-format="pdf"}')
-            raw_lines.append(f"![](images/{img.filename}){{width=100%}}")
-            raw_lines.append(":::")
             raw_lines.append("")
-            raw_lines.append('::: {.content-visible when-format="pdf"}')
-            raw_lines.append("```{=latex}")
-            raw_lines.append(rf"\noindent\makebox[{_FW}][l]{{%")
-            raw_lines.append(rf"  \includegraphics[width={_FW}]{{{p}}}%")
-            raw_lines.append(r"}")
-            raw_lines.append("```")
-            raw_lines.append(":::")
+            raw_lines.append(f"![](images/{img.filename}){{width=100%}}")
             raw_lines.append("")
 
         style_name = para.style.name if para.style else "Normal"
-        raw_text = para.text  # plain text for pass-through detection
+        raw_text = para.text
         stripped = raw_text.strip()
 
         if not stripped:
             raw_lines.append("")
             continue
 
-        # --- Skip title/author/subtitle paragraphs (already in YAML frontmatter) ---
-        # Only skip before the first heading to avoid skipping legitimately repeated text
+        # ── Skip title/author/subtitle (already in YAML frontmatter) ────────
         if style_name in SKIP_STYLES and not seen_heading:
             continue
         if stripped in skip_exact and not seen_heading:
             continue
 
-        # --- Pass-through Quarto syntax ---
+        # ── Pass-through Quarto syntax ───────────────────────────────────────
         if _is_passthrough(stripped):
             raw_lines.append(stripped)
             continue
 
-        # --- Headings via Word/Google Docs heading styles ---
+        # ── Pass-through image markdown — ensure {width=100%} ────────────────
+        if stripped.startswith("!["):
+            if "{width" not in stripped and "{}" not in stripped:
+                # Strip any existing size attr and add standard one
+                stripped = re.sub(r"\{[^}]*\}\s*$", "", stripped).rstrip()
+                stripped = stripped + "{width=100%}"
+            raw_lines.append(stripped)
+            continue
+
+        # ── Headings via Word/Google Docs heading styles ─────────────────────
         heading_prefix = HEADING_MAP.get(style_name)
         if heading_prefix:
             seen_heading = True
             inline = _para_to_inline_text(para)
-            # Strip bold/italic markers: headings are already styled; **...** in
-            # a heading produces literal asterisks in LaTeX/PDF output.
             clean_heading = _strip_emphasis(inline)
             raw_lines.append(f"{heading_prefix} {clean_heading}")
             raw_lines.append("")
             continue
 
-        # --- Headings written as literal markdown (e.g. "# Section 1" in body text) ---
+        # ── Headings written as literal markdown (e.g. "# Section 1") ────────
         literal_heading = _extract_literal_heading(stripped)
         if literal_heading:
             seen_heading = True
@@ -464,30 +522,29 @@ def convert(
             raw_lines.append("")
             continue
 
-        # --- Lists ---
+        # ── Heuristic heading: short all-bold Normal paragraph ───────────────
+        if _is_implicit_heading(para):
+            seen_heading = True
+            clean_heading = _strip_emphasis(_para_to_inline_text(para))
+            raw_lines.append(f"## {clean_heading}")
+            raw_lines.append("")
+            continue
+
+        # ── Lists ────────────────────────────────────────────────────────────
         list_marker = _get_list_marker(para)
 
-        # --- Build inline markdown for this paragraph ---
-        inline = _para_to_inline_text(para)
-
-        # --- Inject Word footnote references ---
-        word_fn_ids = _footnote_ref_ids_in_para(para)
-        # Replace the first occurrence of each footnote separator character.
-        # Word puts a special unicode char (U+0002) or just places the ref;
-        # since python-docx strips ref chars from .text, we append inline markers.
-        for wid in word_fn_ids:
-            n = get_fn_num(wid)
-            inline = inline + f"[^{n}]"
+        # ── Build inline markdown with footnote markers in correct positions ──
+        inline = _para_to_inline_with_fn(para, get_fn_num)
 
         line = inline.strip()
         if list_marker:
             line = list_marker + line
         raw_lines.append(line)
 
-    # 4. Process [aside] / [/aside] blocks
+    # 5. Process [aside] / [/aside] blocks
     processed_lines = _process_asides(raw_lines)
 
-    # 5. Append footnote definitions (Word-footnote derived)
+    # 6. Append footnote definitions
     footnote_defs: list[str] = []
     if fn_map:
         footnote_defs.append("")
@@ -495,12 +552,12 @@ def convert(
             fn_text = word_footnotes.get(word_id, "")
             footnote_defs.append(f"[^{n}]: {fn_text}")
 
-    # 6. Assemble
+    # 7. Assemble
     frontmatter = build_frontmatter(meta, pdf_filename)
     body = "\n".join(processed_lines)
     fn_block = "\n".join(footnote_defs)
 
-    parts = [frontmatter, "", "<!-- Replace everything below with your text. -->", "", body]
+    parts = [frontmatter, "", body]
     if fn_block.strip():
         parts.append(fn_block)
 
@@ -528,9 +585,9 @@ def _process_asides(lines: list[str]) -> list[str]:
         lower = line.lower()
 
         if "[aside]" in lower and "[/aside]" in lower:
-            # Single-line aside: [aside] content [/aside]
             content = re.sub(r"\[aside\]", "", line, flags=re.IGNORECASE)
             content = re.sub(r"\[/aside\]", "", content, flags=re.IGNORECASE).strip()
+            result.append("")
             result.append(":::{.aside}")
             if content:
                 result.append(content)
@@ -539,17 +596,15 @@ def _process_asides(lines: list[str]) -> list[str]:
             continue
 
         if "[aside]" in lower:
-            # Start of aside block
             inside_aside = True
-            prefix = re.sub(r"\[aside\].*", "", line, flags=re.IGNORECASE).strip()
             suffix = re.sub(r".*\[aside\]", "", line, flags=re.IGNORECASE).strip()
+            result.append("")
             result.append(":::{.aside}")
             if suffix:
                 result.append(suffix)
             continue
 
         if "[/aside]" in lower:
-            # End of aside block
             suffix = re.sub(r"\[/aside\].*", "", line, flags=re.IGNORECASE).strip()
             if suffix:
                 result.append(suffix)
@@ -561,7 +616,6 @@ def _process_asides(lines: list[str]) -> list[str]:
         result.append(line)
 
     if inside_aside:
-        # Unclosed aside — close it at end
         result.append(":::")
         result.append("")
 
