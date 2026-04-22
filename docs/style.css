@@ -417,6 +417,42 @@ code {
   margin-bottom: 1rem;
 }
 
+/* ── Doc type toggle ─────────────────────────────────────────────────────── */
+.doctype-toggle {
+  display: flex;
+  gap: 1rem;
+}
+.doctype-option {
+  flex: 1;
+  cursor: pointer;
+}
+.doctype-option input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+}
+.doctype-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .2rem;
+  padding: .85rem 1rem;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.doctype-btn strong { font-size: 1rem; color: var(--text); }
+.doctype-btn small  { font-size: .78rem; color: var(--muted); }
+.doctype-option input[type="radio"]:checked + .doctype-btn {
+  border-color: var(--brand);
+  background: #fdf0f7;
+}
+.doctype-option input[type="radio"]:checked + .doctype-btn strong {
+  color: var(--brand);
+}
+
 /* ── Footer ───────────────────────────────────────────────────────────────── */
 footer {
   text-align: center;

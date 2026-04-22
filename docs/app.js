@@ -91,6 +91,30 @@
     dateInput.value = new Date().toISOString().slice(0, 10);
   }
 
+  // ── Doc type toggle ──────────────────────────────────────────────────────────
+  const modePaperEl  = document.getElementById("modePaper");
+  const modeBlogEl   = document.getElementById("modeBlog");
+  const paperOnlyEls = document.querySelectorAll(".paper-only");
+  const blogOnlyEls  = document.querySelectorAll(".blog-only");
+  const metaHeading  = document.getElementById("metaHeading");
+  const pRunningLabel = document.getElementById("pRunningLabel");
+
+  function applyDocMode() {
+    const isBlog = modeBlogEl.checked;
+    paperOnlyEls.forEach(el => { el.hidden = isBlog; });
+    blogOnlyEls.forEach(el => { el.hidden = !isBlog; });
+    metaHeading.textContent = isBlog ? "Blog Metadata" : "Paper Metadata";
+    if (pRunningLabel) {
+      pRunningLabel.textContent = isBlog
+        ? "Running conversion (~1–2 min)"
+        : "Running conversion (~3–5 min)";
+    }
+  }
+
+  modePaperEl.addEventListener("change", applyDocMode);
+  modeBlogEl.addEventListener("change", applyDocMode);
+  applyDocMode(); // set initial state
+
   // ── Form submit ─────────────────────────────────────────────────────────────
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -103,6 +127,8 @@
       return;
     }
 
+    const isBlog = modeBlogEl.checked;
+
     // Unique token the frontend uses to find its output on gh-pages
     const runToken = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -112,7 +138,17 @@
 
     // ── Trigger the workflow ──────────────────────────────────────────────────
     const fd = new FormData(form);
-    const inputs = {
+    const workflowFile = isBlog ? "convert-blog.yml" : "convert.yml";
+
+    const inputs = isBlog ? {
+      google_doc_url: fd.get("google_doc_url"),
+      title:          fd.get("title"),
+      authors:        fd.get("authors") || "",
+      date:           fd.get("date") || "",
+      categories:     fd.get("categories") || "",
+      slug:           fd.get("slug") || "",
+      run_token:      runToken,
+    } : {
       google_doc_url: fd.get("google_doc_url"),
       title:          fd.get("title"),
       subtitle:       fd.get("subtitle") || "",
@@ -129,7 +165,7 @@
     let runId = null;
     try {
       const triggerResp = await fetch(
-        `https://api.github.com/repos/${REPO}/actions/workflows/convert.yml/dispatches`,
+        `https://api.github.com/repos/${REPO}/actions/workflows/${workflowFile}/dispatches`,
         {
           method: "POST",
           headers: {
@@ -277,12 +313,21 @@
 
   // ── Validation ──────────────────────────────────────────────────────────────
   function validateForm() {
+    const isBlog = modeBlogEl.checked;
     let ok = true;
-    ["google_doc_url", "title", "authors", "date", "pdf_filename"].forEach((id) => {
+
+    // Fields required in both modes
+    ["google_doc_url", "title", "authors", "date"].forEach((id) => {
       const el = document.getElementById(id);
       if (!el.value.trim()) { el.classList.add("error"); ok = false; }
       else el.classList.remove("error");
     });
+
+    // Mode-specific filename field
+    const filenameId = isBlog ? "slug" : "pdf_filename";
+    const fnEl = document.getElementById(filenameId);
+    if (!fnEl.value.trim()) { fnEl.classList.add("error"); ok = false; }
+    else fnEl.classList.remove("error");
 
     const urlEl = document.getElementById("google_doc_url");
     if (urlEl.value.trim() && !urlEl.value.includes("docs.google.com") && !urlEl.value.includes("drive.google.com")) {
@@ -291,7 +336,6 @@
       alert("Please paste a Google Docs URL (docs.google.com or drive.google.com).");
     }
 
-    const fnEl = document.getElementById("pdf_filename");
     if (fnEl.value.trim() && !/^[A-Za-z0-9_\-]+$/.test(fnEl.value.trim())) {
       fnEl.classList.add("error");
       ok = false;

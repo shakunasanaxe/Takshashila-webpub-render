@@ -16,7 +16,7 @@
           <span class="logo-divider">|</span>
           <span class="tool-name">QMD Converter</span>
         </div>
-        <p class="header-sub">Convert a Google Doc to Quarto Markdown (.qmd) and a rendered PDF — ready to upload.</p>
+        <p class="header-sub">Convert a Google Doc to Quarto Markdown — ready to upload.</p>
       </div>
     </div>
     <div class="accent-bar"></div>
@@ -24,6 +24,27 @@
 
   <main>
     <form id="convertForm" novalidate>
+
+      <!-- ── Doc type toggle ───────────────────────────────────────────────── -->
+      <section class="card" id="docTypeCard">
+        <h2>Document Type</h2>
+        <div class="doctype-toggle">
+          <label class="doctype-option">
+            <input type="radio" name="doc_mode" id="modePaper" value="paper" checked />
+            <span class="doctype-btn">
+              <strong>Paper</strong>
+              <small>QMD + rendered PDF</small>
+            </span>
+          </label>
+          <label class="doctype-option">
+            <input type="radio" name="doc_mode" id="modeBlog" value="blog" />
+            <span class="doctype-btn">
+              <strong>Blog</strong>
+              <small>QMD + images only</small>
+            </span>
+          </label>
+        </div>
+      </section>
 
       <!-- ── Token ─────────────────────────────────────────────────────────── -->
       <section class="card" id="tokenCard">
@@ -65,9 +86,9 @@
         />
       </section>
 
-      <!-- ── Step 2: Paper metadata ──────────────────────────────────────────── -->
+      <!-- ── Step 2: Metadata ───────────────────────────────────────────────── -->
       <section class="card">
-        <h2><span class="step">2</span> Paper Metadata</h2>
+        <h2><span class="step">2</span> <span id="metaHeading">Paper Metadata</span></h2>
         <p class="card-desc">These fields populate the YAML frontmatter of the .qmd file.</p>
 
         <div class="field-grid">
@@ -76,7 +97,8 @@
             <input type="text" id="title" name="title" placeholder="European Rearmament" required />
           </div>
 
-          <div class="field full">
+          <!-- paper only -->
+          <div class="field full paper-only">
             <label for="subtitle">Subtitle</label>
             <input type="text" id="subtitle" name="subtitle" placeholder="Precursors, Policies, and Possibilities for India" />
           </div>
@@ -96,17 +118,18 @@
             <input type="text" id="categories" name="categories" placeholder="Defence, Indian Foreign Policy" />
           </div>
 
-          <div class="field full">
+          <!-- paper only -->
+          <div class="field full paper-only">
             <label for="tldr">TL;DR summary</label>
             <textarea id="tldr" name="tldr" rows="3" placeholder="A one-sentence summary shown on the website card."></textarea>
           </div>
 
-          <div class="field">
+          <div class="field paper-only">
             <label for="doctype">Document type</label>
             <input type="text" id="doctype" name="doctype" placeholder="Takshashila Discussion Document 2025-06" />
           </div>
 
-          <div class="field">
+          <div class="field paper-only">
             <label for="docversion">Version</label>
             <input type="text" id="docversion" name="docversion" placeholder="Version 1.0, March 2026" />
           </div>
@@ -117,16 +140,30 @@
       <section class="card">
         <h2><span class="step">3</span> Output Settings</h2>
 
-        <div class="field">
+        <!-- paper filename -->
+        <div class="field paper-only" id="pdfFilenameField">
           <label for="pdf_filename">Output filename stem <span class="req">*</span></label>
           <div class="filename-row">
             <input type="text" id="pdf_filename" name="pdf_filename"
-              placeholder="EU-Rearm-India-09032026" required
+              placeholder="EU-Rearm-India-09032026"
               pattern="[A-Za-z0-9_\-]+"
               title="Letters, numbers, hyphens and underscores only" />
             <span class="filename-ext">.qmd / .pdf</span>
           </div>
           <p class="field-hint">Use the format <code>ShortTitle-DDMMYYYY</code>. No spaces.</p>
+        </div>
+
+        <!-- blog slug -->
+        <div class="field blog-only" id="slugField" hidden>
+          <label for="slug">Filename slug <span class="req">*</span></label>
+          <div class="filename-row">
+            <input type="text" id="slug" name="slug"
+              placeholder="my-blog-post-title"
+              pattern="[A-Za-z0-9_\-]+"
+              title="Letters, numbers, hyphens and underscores only" />
+            <span class="filename-ext">.qmd</span>
+          </div>
+          <p class="field-hint">Lowercase, hyphens only. No spaces.</p>
         </div>
       </section>
 
@@ -161,7 +198,7 @@ Bond Credit Ratings such as AAA (highest)…
           </div>
           <div class="prog-step" id="pRunning">
             <span class="prog-dot"></span>
-            <span class="prog-label">Running conversion (~2–4 min)</span>
+            <span class="prog-label" id="pRunningLabel">Running conversion</span>
           </div>
           <div class="prog-step" id="pPublishing">
             <span class="prog-dot"></span>
@@ -183,7 +220,7 @@ Bond Credit Ratings such as AAA (highest)…
         <p id="resultMsg"></p>
         <div class="download-buttons">
           <a id="dlZip" href="#" class="btn-primary" target="_blank" rel="noopener">
-            Download .zip (QMD + PDF + images)
+            Download .zip
           </a>
         </div>
         <button class="btn-text" id="convertAnother">Convert another document →</button>
